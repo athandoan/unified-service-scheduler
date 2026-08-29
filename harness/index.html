@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Booking client stub</title>
+  <style>
+    body { font-family: sans-serif; max-width: 52rem; }
+    label, fieldset { display: block; margin: 0.5rem 0; }
+    input, select, button, textarea { margin: 0.15rem 0.35rem 0.15rem 0; }
+    pre { background: #f4f4f4; padding: 0.5rem; overflow: auto; white-space: pre-wrap; }
+    .row { margin: 0.35rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Booking client stub</h1>
+  <p>
+    Catalog reads and Booking public API. Duration is display-only (not sent); live
+    occupancy end comes from technician skill via Booking. No technician/bay picker.
+    Does not call <code>/occupations</code>.
+  </p>
+
+  <fieldset>
+    <legend>Mode</legend>
+    <label><input type="radio" name="mode" value="mock" checked> mock (no backend)</label>
+    <label><input type="radio" name="mode" value="live"> localhost</label>
+    <label>Base URL <input id="baseUrl" type="text" value="http://localhost:8080" size="40"></label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Catalog</legend>
+    <label>Dealership
+      <select id="dealership"></select>
+    </label>
+    <label>Customer
+      <select id="customer"></select>
+    </label>
+    <label>Vehicle
+      <select id="vehicle"></select>
+    </label>
+    <label>Service type
+      <select id="serviceType"></select>
+    </label>
+    <p id="durationDisplay"></p>
+    <button type="button" id="reloadCatalog">Reload catalog</button>
+  </fieldset>
+
+  <fieldset>
+    <legend>Booking</legend>
+    <label>Exact start (ISO 8601 timestamptz)
+      <input id="start" type="text" size="36" value="2026-09-01T08:00:00Z">
+    </label>
+    <label>Idempotency-Key (confirm only)
+      <input id="idempotencyKey" type="text" size="40">
+      <button type="button" id="regenKey">New key</button>
+    </label>
+    <div class="row">
+      <button type="button" id="hold">POST /holds</button>
+      <button type="button" id="confirm">POST /appointments (no hold)</button>
+      <button type="button" id="promote">POST /appointments (holdId)</button>
+    </div>
+    <label>Appointment id
+      <input id="appointmentId" type="text" size="40">
+    </label>
+    <div class="row">
+      <button type="button" id="getAppt">GET /appointments/{id}</button>
+      <button type="button" id="cancelAppt">DELETE /appointments/{id}</button>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Request</legend>
+    <pre id="requestOut">(none)</pre>
+  </fieldset>
+  <fieldset>
+    <legend>Response</legend>
+    <pre id="responseOut">(none)</pre>
+  </fieldset>
+
+  <script src="app.js"></script>
+</body>
+</html>

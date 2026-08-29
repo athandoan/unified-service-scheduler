@@ -1,0 +1,135 @@
+openapi: 3.0.3
+info:
+  title: Catalog (stub)
+  version: 0.1.0
+  description: |
+    Public catalogue reads. Own Postgres in the design; this file is the client-stub
+    contract only. The write path snapshots these resources fail-closed inside Booking
+    (ownership, hours, IANA TZ, type exists). `durationMinutes` is display/typical —
+    not the occupancy claim; Booking does not snapshot it for `end_at`, and clients
+    never send duration.
+servers:
+  - url: http://localhost:8080
+paths:
+  /dealerships:
+    get:
+      operationId: listDealerships
+      tags: [Catalog]
+      summary: List dealerships
+      responses:
+        "200":
+          description: Dealerships
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Dealership"
+  /service-types:
+    get:
+      operationId: listServiceTypes
+      tags: [Catalog]
+      summary: List service types
+      responses:
+        "200":
+          description: Service types
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServiceType"
+  /customers/{id}/vehicles:
+    get:
+      operationId: listCustomerVehicles
+      tags: [Catalog]
+      summary: List vehicles owned by a customer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Vehicles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Vehicle"
+        "404":
+          description: Customer not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  schemas:
+    Dealership:
+      type: object
+      required: [id, timezone]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        timezone:
+          type: string
+          description: IANA timezone
+          example: Europe/London
+        openingHours:
+          type: array
+          items:
+            $ref: "#/components/schemas/OpeningHours"
+    OpeningHours:
+      type: object
+      required: [weekday, openMinutes, closeMinutes]
+      properties:
+        weekday:
+          type: integer
+          minimum: 1
+          maximum: 7
+          description: ISO weekday (1=Monday, 7=Sunday). Missing weekday = closed.
+        openMinutes:
+          type: integer
+          description: Local minutes from midnight
+        closeMinutes:
+          type: integer
+          description: Local minutes from midnight
+    ServiceType:
+      type: object
+      required: [id, durationMinutes]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        durationMinutes:
+          type: integer
+          minimum: 1
+          description: Display/typical only. Not the occupancy claim; Booking does not snapshot it for `end_at`.
+    Vehicle:
+      type: object
+      required: [id, customerId, vin]
+      properties:
+        id:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        vin:
+          type: string
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        message:
+          type: string

@@ -1,0 +1,272 @@
+openapi: 3.0.3
+info:
+  title: Booking (public)
+  version: 0.1.0
+  description: |
+    Public Booking API. Clients send an exact `start` (ISO 8601 timestamptz). Duration
+    is not a client/write-path field — Booking stores `end_at` from Technician Reserve
+    (`start + TechnicianSkill.duration_minutes`), not catalogue `durationMinutes`.
+    Clients do not pick a technician or bay and do not call `/occupations`.
+
+    `POST /holds` is not idempotent and must not send `Idempotency-Key`.
+    `POST /appointments` is confirm-without-hold or hold-then-promote (`holdId`);
+    `Idempotency-Key` is confirm-only.
+servers:
+  - url: http://localhost:8080
+paths:
+  /holds:
+    post:
+      operationId: createHold
+      tags: [Booking]
+      summary: Hold an interval (120s)
+      description: |
+        Snapshot Catalog, then saga reserve tech → bay → appointment `HELD` for 120s.
+        Compensates on failure. Not idempotent. Do not send Idempotency-Key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HoldRequest"
+      responses:
+        "201":
+          description: Held
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400":
+          description: Invalid start or payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Unavailable or contended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /appointments:
+    post:
+      operationId: confirmAppointment
+      tags: [Booking]
+      summary: Confirm without hold, or promote a hold
+      description: |
+        Confirm-without-hold runs the same saga and persists `CONFIRMED`.
+        When `holdId` is set, promote-in-place — no second claim; tech, bay, and
+        interval do not change. Idempotency-Key applies to confirm only.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Confirm only. Same key + same fingerprint replays; mismatch is 409.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmRequest"
+            examples:
+              withoutHold:
+                summary: Confirm without hold
+                value:
+                  dealershipId: "11111111-1111-4111-8111-111111111111"
+                  customerId: "55555555-5555-4555-8555-555555555555"
+                  vehicleId: "77777777-7777-4777-8777-777777777777"
+                  serviceTypeId: "33333333-3333-4333-8333-333333333333"
+                  start: "2026-09-01T08:00:00Z"
+              promote:
+                summary: Hold then promote
+                value:
+                  holdId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      responses:
+        "200":
+          description: Idempotent replay of a CONFIRMED appointment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "201":
+          description: Confirmed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "400":
+          description: Invalid payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Unavailable, contended, expired hold, or idempotency mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /appointments/{id}:
+    get:
+      operationId: getAppointment
+      tags: [Booking]
+      summary: Confirmation record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Appointment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Appointment"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: cancelAppointment
+      tags: [Booking]
+      summary: Cancel and release both occupations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Cancelled
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Cannot cancel
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+components:
+  schemas:
+    HoldRequest:
+      type: object
+      required: [dealershipId, customerId, vehicleId, serviceTypeId, start]
+      additionalProperties: false
+      properties:
+        dealershipId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        vehicleId:
+          type: string
+          format: uuid
+        serviceTypeId:
+          type: string
+          format: uuid
+        start:
+          type: string
+          format: date-time
+          description: Exact start as ISO 8601 timestamptz. Duration is not accepted.
+    ConfirmRequest:
+      type: object
+      additionalProperties: false
+      description: |
+        Confirm-without-hold requires Catalog ids + `start`.
+        Promote-in-place requires `holdId` only.
+      properties:
+        holdId:
+          type: string
+          format: uuid
+          description: Unexpired HELD appointment to promote in place
+        dealershipId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        vehicleId:
+          type: string
+          format: uuid
+        serviceTypeId:
+          type: string
+          format: uuid
+        start:
+          type: string
+          format: date-time
+          description: Exact start as ISO 8601 timestamptz. Ignored when holdId is set.
+    Appointment:
+      type: object
+      required:
+        - id
+        - dealershipId
+        - customerId
+        - vehicleId
+        - serviceTypeId
+        - technicianId
+        - serviceBayId
+        - start_at
+        - end_at
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        dealershipId:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+          format: uuid
+        vehicleId:
+          type: string
+          format: uuid
+        serviceTypeId:
+          type: string
+          format: uuid
+        technicianId:
+          type: string
+          format: uuid
+          description: Assigned by Booking; clients do not pick a technician
+        serviceBayId:
+          type: string
+          format: uuid
+          description: Assigned by Booking; clients do not pick a bay
+        start_at:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamptz
+        end_at:
+          type: string
+          format: date-time
+          description: ISO 8601 timestamptz from the picked technician's skill duration (Reserve), not snapshotted catalogue duration
+        status:
+          type: string
+          enum: [HELD, CONFIRMED, CANCELLED]
+        hold_expires_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Set iff status is HELD
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: unavailable
+        message:
+          type: string
