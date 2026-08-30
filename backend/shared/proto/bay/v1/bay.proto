@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package scheduler.bay.v1;
+
+option go_package = "github.com/athandoan/unified-service-scheduler/shared/gen/proto/bay/v1;bayv1";
+
+import "google/protobuf/timestamp.proto";
+
+// Bay allocator: owns service-bay interval holds (Reserve / Confirm / Release).
+// Bays are homogeneous: Reserve carries no service_type_id and no latest_end —
+// it receives the returned technician occupancy [start, end) verbatim. Unary
+// only, called by Booking on the write path.
+service BayService {
+  // Reserve picks one free active bay for the given interval and holds it.
+  rpc Reserve(ReserveRequest) returns (ReserveResponse);
+  // Confirm promotes an existing HELD occupation to CONFIRMED in place.
+  rpc Confirm(ConfirmRequest) returns (ConfirmResponse);
+  // Release drops a held/confirmed occupation out of the claim.
+  rpc Release(ReleaseRequest) returns (ReleaseResponse);
+}
+
+message ReserveRequest {
+  // Opaque Catalog UUID of the dealership.
+  string dealership_id = 1;
+  // Interval to hold; the returned technician occupancy end, forwarded by Booking.
+  google.protobuf.Timestamp start = 2;
+  google.protobuf.Timestamp end = 3;
+  // Pick-hash salt. Not Reserve idempotency.
+  string request_id = 4;
+}
+
+message ReserveResponse {
+  string occupation_id = 1;
+  string service_bay_id = 2;
+}
+
+message ConfirmRequest {
+  string occupation_id = 1;
+}
+
+message ConfirmResponse {}
+
+message ReleaseRequest {
+  string occupation_id = 1;
+}
+
+message ReleaseResponse {}

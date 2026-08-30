@@ -1,0 +1,113 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: scheduler-postgres
+    environment:
+      POSTGRES_USER: scheduler
+      POSTGRES_PASSWORD: scheduler
+      POSTGRES_DB: catalog
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/docker/init-databases.sql:/docker-entrypoint-initdb.d/01-init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scheduler -d catalog"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # One-shot: applies SQL migrations to all four databases, then exits 0.
+  # Apps wait for service_completed_successfully.
+  migrate:
+    build:
+      context: .
+      args:
+        PKG: ./shared/migrate
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: scheduler
+      PGPASSWORD: scheduler
+    # Args to the image entrypoint (/app); -root points at the copied migrations tree.
+    command: ["-root", "/migrations"]
+
+  catalog:
+    build:
+      context: .
+      args:
+        PKG: ./services/catalog/cmd
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      CATALOG_DATABASE_URL: postgres://scheduler:scheduler@postgres:5432/catalog?sslmode=disable
+      CATALOG_ADDR: ":8081"
+
+  technician:
+    build:
+      context: .
+      args:
+        PKG: ./services/technician/cmd
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      TECHNICIAN_DATABASE_URL: postgres://scheduler:scheduler@postgres:5432/technician?sslmode=disable
+      TECHNICIAN_ADDR: ":9091"
+
+  bay:
+    build:
+      context: .
+      args:
+        PKG: ./services/bay/cmd
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      BAY_DATABASE_URL: postgres://scheduler:scheduler@postgres:5432/bay?sslmode=disable
+      BAY_ADDR: ":9092"
+
+  booking:
+    build:
+      context: .
+      args:
+        PKG: ./services/booking/cmd
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      technician:
+        condition: service_started
+      bay:
+        condition: service_started
+    environment:
+      BOOKING_DATABASE_URL: postgres://scheduler:scheduler@postgres:5432/booking?sslmode=disable
+      BOOKING_CATALOG_URL: http://catalog:8081
+      BOOKING_TECHNICIAN_ADDR: technician:9091
+      BOOKING_BAY_ADDR: bay:9092
+      BOOKING_ADDR: ":8082"
+
+  gateway:
+    build:
+      context: .
+      args:
+        PKG: ./services/gateway
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      catalog:
+        condition: service_started
+      booking:
+        condition: service_started
+    environment:
+      GATEWAY_CATALOG_URL: http://catalog:8081
+      GATEWAY_BOOKING_URL: http://booking:8082
+      GATEWAY_ADDR: ":8080"
+    ports:
+      - "8080:8080"
+
+volumes:
+  pgdata:

@@ -86,6 +86,36 @@ Collaboration record for System design / Implement / Test / Deploy — not a sou
   - **Reviewed:** harness for testing; backend still the assessment.
   - **Changed:** stub not frontend track; never `/occupations`; not Go.
 
+- Backend Phase 1–2 (foundation + allocators)
+  - **AI:** built compose (Postgres 16, four DBs), four SQL migrations with a pgx runner, Catalog stub on :8081, two unary protos (Technician/Bay), and the allocators’ INSERT…SELECT claims on :9091/:9092.
+  - **Reviewed:** user locked runtime (Go on host, Docker = Postgres only, :8080 = Gateway), Reserve message shapes, TTL 120s in SQL, request_id as pick-hash salt.
+  - **Changed:** btree_gist EXCLUDE per allocator; Bay claim has no predicates (GiST sole authority); technician.timezone denormalized for local-minute shifts; 23P01 → delete expired HELD → retry ×3.
+
+- Backend Phase 3 (Booking + Gateway)
+  - **AI:** Booking saga (Catalog snapshot fail-closed → Reserve tech → Reserve bay → INSERT HELD → Confirm tech then bay), Gateway as a thin reverse-proxy on :8080, Booking sweeper + allocator reapers.
+  - **Reviewed:** user confirmed write-path 1–7, confirm-only idempotency, POST /holds returns HELD and must not Confirm, compensate bay-then-tech.
+  - **Changed:** Booking owns only the appointment row (no occupancy SQL); idempotency_key/fingerprint land only on the CONFIRMED UPDATE; any Confirm failure releases both and 409s; never a replacement pair.
+
 ## Test
+
+- Occupancy tests
+  - **AI:** first pass used claim predicates that made GiST removable without failing tests.
+  - **Reviewed:** user rule — tests must be able to break the occupancy invariant.
+  - **Changed:** Bay claim reduced to pick-only, with skip-busy `NOT EXISTS` plus the GiST exclusion as the race authority; the same-bay public test would be defeated by dropping Bay GiST; same-tech public test runs with ≥2 bays so Bay cannot mask a dropped technician GiST; same-tech and compensate read live allocator DBs.
+
+- Public tests (three)
+  - **AI:** three public HTTP tests through Booking (in-process): same-tech overlap (1 tech ≥2 bays), same-bay overlap (≥2 techs 1 bay), compensate (bay fail → tech RELEASED).
+  - **Reviewed:** topologies from the lock table; concurrent (goroutines, gate), test-owned rows, no migration seed.
+  - **Changed:** all three pass against compose Postgres; loser gets 409; compensate verified by reading the technician DB.
+
+- Mocked unit tests
+  - **AI:** occupancy tests as the only suite (real Postgres).
+  - **Reviewed:** user wants unit / E2E / load split; mocked units first for CI without Postgres; occupancy must still break GiST.
+  - **Changed:** `go test -short` skips occupancy via `Connect()` only; Booking/Gateway httptest fakes; `make test` occupancy command unchanged; `-short` is not the occupancy gate.
+
+- Gateway E2E
+  - **AI:** in-process Booking tests as the public API check.
+  - **Reviewed:** user wants a local E2E suite against compose Gateway `:8080`; load tests pending.
+  - **Changed:** `backend/e2e` `//go:build e2e`; test-owned dealers (not fixture North Workshop); HTTP only `:8080`; Alpine images include `tzdata` so IANA hours work; `make test-e2e`; `make test-load` stub.
 
 ## Deploy

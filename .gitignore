@@ -1,1 +1,36 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Build output
+bin/
+
+# Coverage
+*.out.cover
+coverage.txt
+coverage.html
+cover.out
+
+# Go workspace/junk
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Local env
+.env
+
+# Lock: .slim/deepwork/
 .slim/deepwork/

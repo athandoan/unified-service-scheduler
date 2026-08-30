@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package scheduler.technician.v1;
+
+option go_package = "github.com/athandoan/unified-service-scheduler/shared/gen/proto/technician/v1;technicianv1";
+
+import "google/protobuf/timestamp.proto";
+
+// Technician allocator: owns technician interval holds (Reserve / Confirm /
+// Release). Unary only, called by Booking on the write path. The skill row's
+// duration_minutes sets the returned occupancy end; request_id is the pick-hash
+// salt, not Reserve idempotency.
+service TechnicianService {
+  // Reserve picks one free qualified technician for the interval and holds it.
+  // end = start + skill.duration_minutes, never a client field.
+  rpc Reserve(ReserveRequest) returns (ReserveResponse);
+  // Confirm promotes an existing HELD occupation to CONFIRMED in place.
+  rpc Confirm(ConfirmRequest) returns (ConfirmResponse);
+  // Release drops a held/confirmed occupation out of the claim.
+  rpc Release(ReleaseRequest) returns (ReleaseResponse);
+}
+
+message ReserveRequest {
+  // Opaque Catalog UUID of the dealership.
+  string dealership_id = 1;
+  // Opaque Catalog UUID; the skill row for (technician, service_type) is looked
+  // up here, supplying the occupancy duration.
+  string service_type_id = 2;
+  // Interval start (timestamptz instant).
+  google.protobuf.Timestamp start = 3;
+  // Shop-close ceiling for this weekday; occupancy end must be <= it.
+  google.protobuf.Timestamp latest_end = 4;
+  // Pick-hash salt (ORDER BY hash(id, request_id)). Not Reserve idempotency.
+  string request_id = 5;
+}
+
+message ReserveResponse {
+  string occupation_id = 1;
+  string technician_id = 2;
+  // Skill-derived occupancy end = start + skill.duration_minutes.
+  google.protobuf.Timestamp end = 3;
+}
+
+message ConfirmRequest {
+  string occupation_id = 1;
+}
+
+message ConfirmResponse {}
+
+message ReleaseRequest {
+  string occupation_id = 1;
+}
+
+message ReleaseResponse {}
