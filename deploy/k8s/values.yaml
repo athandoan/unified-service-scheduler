@@ -1,0 +1,38 @@
+# Image reference prefix for the seven scheduler images (migrate, catalog,
+# technician, bay, booking, gateway, harness). Registry-less by default; override in
+# Phase 2 with a node-reachable registry, e.g. --set imagePrefix=10.0.0.5:5000.
+imagePrefix: scheduler
+
+# Single tag shared by all seven images.
+imageTag: latest
+
+# Optional list of image pull secret OBJECTS ({name: <secret>}) referencing
+# secrets that must already exist in the release namespace. Credentials are
+# never stored here — create them out-of-band, e.g.
+#   kubectl create secret docker-registry registry ...
+# Applied to the migrate Job and the five app Deployments only; postgres uses
+# the upstream postgres:16 image. Empty list omits the field entirely.
+imagePullSecrets: []
+
+# Public hostnames on the cluster Gateway API (Traefik public-gateway).
+# Wildcard DNS *.rjx.dedyn.io already points at the nodes.
+# BE serves the Gateway; FE serves the harness static stub (nginx).
+httpRoute:
+  enabled: true
+  apiHost: api.rjx.dedyn.io
+  appHost: scheduler.rjx.dedyn.io
+  gateway:
+    name: public-gateway
+    namespace: traefik
+
+postgres:
+  image: postgres:16
+  # Matches backend/docker-compose.yml POSTGRES_USER/POSTGRES_PASSWORD.
+  # Demo credentials only — NOT production. Sourced from the demo Secret.
+  user: scheduler
+  password: scheduler
+
+# PVC for the postgres data dir. storageClassName intentionally unset so the
+# cluster default StorageClass applies.
+persistence:
+  size: 5Gi

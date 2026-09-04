@@ -9,7 +9,7 @@ The architectural plan is [`docs/SYSTEM_DESIGN.md`](./docs/SYSTEM_DESIGN.md). Im
 - [x] **System design** — done: [`docs/SYSTEM_DESIGN.md`](./docs/SYSTEM_DESIGN.md).
 - [x] **Implement** — write path: **Technician** + **Bay** + **Booking** (Go + pgx). Each allocator has PostgreSQL GiST on its resource. Booking orchestrates and compensates. Catalog and the client stay **stubs** (OpenAPI + harness). Gateway is a REST edge, **not** the saga coordinator.
 - [x] **Test** — concurrent overlap on the **same tech** and the **same bay**; plus tech reserved / bay fails → tech released. Happy-path coverage alone is not enough.
-- [ ] **Deploy** — later: the three write services + their Postgres, local first. Kubernetes/Jenkins is not the problem. Extra pods do not add occupancy scale.
+- [x] **Deploy** — local first (compose above). Kubernetes is a Helm chart at [`deploy/k8s/`](./deploy/k8s/), not the occupancy problem. Extra pods do not add occupancy scale.
 
 Assessment leftovers: the video, if still required. The AI Collaboration Narrative is below and stays as the design-session account.
 
@@ -56,6 +56,31 @@ which runs `go test -tags e2e ./e2e/... -count=1` (the `e2e` build tag keeps the
 
 Load tests: **pending** — `make test-load` is a stub.
 
+### Kubernetes (Helm)
+
+Compose remains the local loop. The cluster path is one chart, **replicas: 1**. Services stay ClusterIP; two public hostnames on Gateway API HTTPRoute: BE `api.rjx.dedyn.io` → `svc/gateway:8080`, FE `scheduler.rjx.dedyn.io` → the harness stub (nginx, still a stub — not a product UI).
+
+```bash
+cd backend
+make image-build image-push IMAGE_PREFIX=<registry>/scheduler
+make k8s-apply IMAGE_PREFIX=<registry>/scheduler
+curl -sS https://api.rjx.dedyn.io/dealerships
+```
+
+Override the hosts with `--set httpRoute.apiHost=... --set httpRoute.appHost=...` or disable both with `--set httpRoute.enabled=false`. Port-forward still works as a fallback: `kubectl -n scheduler port-forward svc/gateway 8080:8080`.
+
+`IMAGE_PREFIX` must be a registry the **nodes** can pull (not laptop `127.0.0.1:5000`). `PLATFORM` defaults to `linux/arm64` (Ampere). `postgres:16` is upstream.
+
+If the registry needs auth, create a `kubernetes.io/dockerconfigjson` secret in namespace `scheduler` (do not commit it) and pass its name:
+
+```bash
+helm upgrade --install scheduler ../deploy/k8s -n scheduler --create-namespace \
+  --set imagePrefix=<registry>/scheduler --set imageTag=latest \
+  --set 'imagePullSecrets[0].name=registry'
+```
+
+`make k8s-apply` waits for postgres Ready, then for the migrate **Job** to complete (`helm --wait` is not that gate). `make k8s-delete` uninstalls the release.
+
 ## Client stub
 
 Static HTML/JS harness for Catalog reads and Booking’s public API — no slot grid. Not a product UI. Not the frontend track. Mock mode is **not** the overlap test. Never `/occupations`.
@@ -72,7 +97,7 @@ then visit `http://localhost:8000`. Toggle **mock** (no Go backend) vs **localho
 
 ## AI Collaboration Narrative
 
-This section is the design-session account. GenAI did not write production code in the design phase; implementation in [`backend/`](./backend/) and per-phase authorship are in [`docs/AI_LOG.md`](./docs/AI_LOG.md) (Implement / Test).
+This section is the design-session account. GenAI did not write production code in the design phase; implementation in [`backend/`](./backend/) and per-phase authorship are in [`docs/AI_LOG.md`](./docs/AI_LOG.md) (Implement / Test / Deploy).
 
 **Guiding.** A confirmed job needs a free bay and a free qualified technician for the whole interval; silent double-book is the failure that matters. Duration is not taken from the client. Occupancy is not Redis. Direction was those constraints, not “design a scheduler.”
 

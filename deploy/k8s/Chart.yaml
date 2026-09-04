@@ -1,0 +1,6 @@
+apiVersion: v2
+name: scheduler
+description: Unified service scheduler — postgres, migrate job, and the five Go services (compose-equivalent).
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

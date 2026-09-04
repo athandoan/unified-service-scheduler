@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-harness
+  labels:
+    {{- include "scheduler.labels" (dict "ctx" . "component" "harness") | nindent 4 }}
+spec:
+  # Hardcoded: not a values knob. The FE stub does not scale.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scheduler
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: harness
+  template:
+    metadata:
+      labels:
+        {{- include "scheduler.labels" (dict "ctx" . "component" "harness") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: harness
+          image: {{ .Values.imagePrefix }}/harness:{{ .Values.imageTag }}
+          ports:
+            - name: http
+              containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # FE domain serves this stub via HTTPRoute (appHost).
+  name: harness
+  labels:
+    {{- include "scheduler.labels" (dict "ctx" . "component" "harness") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: scheduler
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: harness
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

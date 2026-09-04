@@ -119,3 +119,18 @@ Collaboration record for System design / Implement / Test / Deploy — not a sou
   - **Changed:** `backend/e2e` `//go:build e2e`; test-owned dealers (not fixture North Workshop); HTTP only `:8080`; Alpine images include `tzdata` so IANA hours work; `make test-e2e`; `make test-load` stub.
 
 ## Deploy
+
+- Helm chart + cluster apply
+  - **AI:** Kustomize first; then Helm because the machine already has Helm.
+  - **Reviewed:** user chose Helm; oracle: migrate is a Job not a hook; `replicas: 1` hardcoded; smoke is port-forward `/dealerships`; arm64 `PLATFORM` and optional `imagePullSecrets` names (no credentials in git).
+  - **Changed:** `deploy/k8s/` chart; `make image-build/image-push/k8s-apply/k8s-delete`; live smoke 200 on Gateway; README Deploy ticked.
+
+- Public hostname
+  - **AI:** ClusterIP + port-forward only (no Ingress).
+  - **Reviewed:** user wants a domain; cluster already uses Gateway API HTTPRoute on `public-gateway` / `*.rjx.dedyn.io`.
+  - **Changed:** HTTPRoute `scheduler.rjx.dedyn.io` → `gateway:8080` plus HTTP→HTTPS redirect. Superseded below (never applied; BE moved to `api`).
+
+- FE + BE domains
+  - **AI:** one domain for the Gateway; no product frontend in repo.
+  - **Reviewed:** user wants one domain each: FE `scheduler.rjx.dedyn.io` serves the harness stub, BE `api.rjx.dedyn.io` serves Gateway; harness stays a stub.
+  - **Changed:** 7th `harness` nginx image; HTTPRoutes api → `gateway:8080`, scheduler → `harness:80` (+ redirects); live smoke 200 on both; harness live-mode Base URL defaults to the BE domain when served remotely.

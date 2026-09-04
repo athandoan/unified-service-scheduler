@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-bay
+  labels:
+    {{- include "scheduler.labels" (dict "ctx" . "component" "bay") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scheduler
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: bay
+  template:
+    metadata:
+      labels:
+        {{- include "scheduler.labels" (dict "ctx" . "component" "bay") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: bay
+          image: {{ .Values.imagePrefix }}/bay:{{ .Values.imageTag }}
+          env:
+            - name: BAY_DATABASE_URL
+              value: postgres://{{ .Values.postgres.user }}:{{ .Values.postgres.password }}@postgres:5432/bay?sslmode=disable
+            - name: BAY_ADDR
+              value: :9092
+          ports:
+            - name: grpc
+              containerPort: 9092
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Compose DNS name: bay:9092 from booking.
+  name: bay
+  labels:
+    {{- include "scheduler.labels" (dict "ctx" . "component" "bay") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: scheduler
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: bay
+  ports:
+    - name: grpc
+      port: 9092
+      targetPort: grpc

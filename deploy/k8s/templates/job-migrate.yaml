@@ -1,0 +1,46 @@
+{{- /*
+One-shot migration Job. Deliberately NOT a Helm hook: hook Jobs run after all
+non-hook resources, so apps would start before migrations are applied. Apps
+here simply start alongside; Phase 2 smoke runs after the Job completes.
+
+Jobs are immutable: `k8s-apply` deletes the previous migrate Job (matched by
+the app.kubernetes.io/component=migrate label) before each upgrade.
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-migrate
+  labels:
+    {{- include "scheduler.labels" (dict "ctx" . "component" "migrate") | nindent 4 }}
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "scheduler.labels" (dict "ctx" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: migrate
+          image: {{ .Values.imagePrefix }}/migrate:{{ .Values.imageTag }}
+          # Entrypoint is /app; -root points at the migrations tree copied by
+          # the Dockerfile for PKG=./shared/migrate.
+          args:
+            - -root
+            - /migrations
+          env:
+            - name: PGHOST
+              value: postgres
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgres
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgres
+                  key: POSTGRES_PASSWORD

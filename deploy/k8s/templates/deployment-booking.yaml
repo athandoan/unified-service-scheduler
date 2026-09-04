@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-booking
+  labels:
+    {{- include "scheduler.labels" (dict "ctx" . "component" "booking") | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scheduler
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: booking
+  template:
+    metadata:
+      labels:
+        {{- include "scheduler.labels" (dict "ctx" . "component" "booking") | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: booking
+          image: {{ .Values.imagePrefix }}/booking:{{ .Values.imageTag }}
+          env:
+            - name: BOOKING_DATABASE_URL
+              value: postgres://{{ .Values.postgres.user }}:{{ .Values.postgres.password }}@postgres:5432/booking?sslmode=disable
+            - name: BOOKING_CATALOG_URL
+              value: http://catalog:8081
+            - name: BOOKING_TECHNICIAN_ADDR
+              value: technician:9091
+            - name: BOOKING_BAY_ADDR
+              value: bay:9092
+            - name: BOOKING_ADDR
+              value: :8082
+          ports:
+            - name: http
+              containerPort: 8082
+---
+apiVersion: v1
+kind: Service
+metadata:
+  # Compose DNS name: http://booking:8082 from gateway.
+  name: booking
+  labels:
+    {{- include "scheduler.labels" (dict "ctx" . "component" "booking") | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: scheduler
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: booking
+  ports:
+    - name: http
+      port: 8082
+      targetPort: http

@@ -376,6 +376,12 @@
   }
 
   async function init() {
+    // Served from a remote host (FE domain): point the live-mode Base URL at
+    // the BE API instead of localhost. Mock stays the checked default mode.
+    const servedHost = window.location.hostname;
+    if (servedHost && servedHost !== "localhost" && servedHost !== "127.0.0.1") {
+      el("baseUrl").value = "https://api.rjx.dedyn.io";
+    }
     fixtures = await loadFixtures();
     populateCustomers();
     populateDealerships(fixtures.dealerships || []);

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-init-databases
+  labels:
+    {{- include "scheduler.labels" (dict "ctx" . "component" "postgres") | nindent 4 }}
+# Creates the technician / bay / booking databases (catalog is POSTGRES_DB).
+data:
+  01-init-databases.sql: |-
+{{ .Files.Get "files/init-databases.sql" | indent 4 }}

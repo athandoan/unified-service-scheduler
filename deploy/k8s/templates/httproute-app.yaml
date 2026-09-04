@@ -1,0 +1,44 @@
+{{- if .Values.httpRoute.enabled }}
+# FE: scheduler.rjx.dedyn.io serves the harness static stub (nginx).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Release.Name }}-app
+  labels:
+    {{- include "scheduler.labels" (dict "ctx" . "component" "harness") | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.httpRoute.gateway.name }}
+      namespace: {{ .Values.httpRoute.gateway.namespace }}
+      sectionName: https
+  hostnames:
+    - {{ .Values.httpRoute.appHost | quote }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: harness
+          port: 80
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Release.Name }}-app-http-redirect
+  labels:
+    {{- include "scheduler.labels" (dict "ctx" . "component" "harness") | nindent 4 }}
+spec:
+  parentRefs:
+    - name: {{ .Values.httpRoute.gateway.name }}
+      namespace: {{ .Values.httpRoute.gateway.namespace }}
+      sectionName: http
+  hostnames:
+    - {{ .Values.httpRoute.appHost | quote }}
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+{{- end }}
