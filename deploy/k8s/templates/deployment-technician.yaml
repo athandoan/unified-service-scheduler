@@ -4,6 +4,9 @@ metadata:
   name: {{ .Release.Name }}-technician
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "technician") | nindent 4 }}
+  annotations:
+    # ArgoCD: apps roll after the migrate Job (1).
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   replicas: 1
   selector:
@@ -39,6 +42,9 @@ metadata:
   name: technician
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "technician") | nindent 4 }}
+  annotations:
+    # ArgoCD: stays with the technician Deployment in wave 2.
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   type: ClusterIP
   selector:

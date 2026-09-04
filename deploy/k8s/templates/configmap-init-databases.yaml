@@ -4,6 +4,9 @@ metadata:
   name: {{ .Release.Name }}-init-databases
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "postgres") | nindent 4 }}
+  annotations:
+    # ArgoCD: postgres provisions first (wave 0), before the migrate Job.
+    argocd.argoproj.io/sync-wave: "0"
 # Creates the technician / bay / booking databases (catalog is POSTGRES_DB).
 data:
   01-init-databases.sql: |-

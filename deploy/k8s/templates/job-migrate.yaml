@@ -12,6 +12,11 @@ metadata:
   name: {{ .Release.Name }}-migrate
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "migrate") | nindent 4 }}
+  annotations:
+    # ArgoCD: migrate runs after postgres (0), before apps (2).
+    argocd.argoproj.io/sync-wave: "1"
+    # Jobs are immutable; Replace mirrors the manual delete-first flow.
+    argocd.argoproj.io/sync-options: Replace=true
 spec:
   template:
     metadata:

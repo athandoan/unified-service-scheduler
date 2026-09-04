@@ -4,6 +4,9 @@ metadata:
   name: {{ .Release.Name }}-harness
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "harness") | nindent 4 }}
+  annotations:
+    # ArgoCD: apps roll after the migrate Job (1).
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   # Hardcoded: not a values knob. The FE stub does not scale.
   replicas: 1
@@ -35,6 +38,9 @@ metadata:
   name: harness
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "harness") | nindent 4 }}
+  annotations:
+    # ArgoCD: stays with the harness Deployment in wave 2.
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   type: ClusterIP
   selector:

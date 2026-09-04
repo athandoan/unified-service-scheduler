@@ -4,6 +4,12 @@ metadata:
   name: {{ .Release.Name }}-pgdata
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "postgres") | nindent 4 }}
+  annotations:
+    # Survives `helm uninstall` at the ArgoCD cutover; ArgoCD then adopts the
+    # identical manifest with data intact.
+    helm.sh/resource-policy: keep
+    # ArgoCD: postgres provisions first (wave 0), before the migrate Job.
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   accessModes:
     - ReadWriteOnce

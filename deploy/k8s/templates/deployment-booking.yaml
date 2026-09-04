@@ -4,6 +4,9 @@ metadata:
   name: {{ .Release.Name }}-booking
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "booking") | nindent 4 }}
+  annotations:
+    # ArgoCD: apps roll after the migrate Job (1).
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   replicas: 1
   selector:
@@ -45,6 +48,9 @@ metadata:
   name: booking
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "booking") | nindent 4 }}
+  annotations:
+    # ArgoCD: stays with the booking Deployment in wave 2.
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   type: ClusterIP
   selector:

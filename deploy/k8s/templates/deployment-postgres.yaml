@@ -4,6 +4,9 @@ metadata:
   name: {{ .Release.Name }}-postgres
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "postgres") | nindent 4 }}
+  annotations:
+    # ArgoCD: postgres provisions first (wave 0), before the migrate Job.
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   # Hardcoded: not a values knob. Extra postgres replicas do not add scale.
   replicas: 1
@@ -68,6 +71,9 @@ metadata:
   name: postgres
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "postgres") | nindent 4 }}
+  annotations:
+    # ArgoCD: stays with the postgres Deployment in wave 0.
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   type: ClusterIP
   selector:

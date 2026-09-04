@@ -1,0 +1,115 @@
+name: publish
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# CI never touches the cluster: push :latest + :main-<sha> to
+# registry.rjx.dedyn.io and the on-cluster Image Updater + ArgoCD take it
+# from there. Registry credentials live in GitHub secrets
+# (REGISTRY_USERNAME / REGISTRY_PASSWORD, created out-of-band in the repo
+# settings) — referenced here, never in git.
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    # qemu arm64 Go builds are slow (~5 min each); steps run sequentially.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: registry.rjx.dedyn.io
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+      # Both tags on ALL seven images (same sha everywhere) — the updater's
+      # single-alias contract: gateway is the version signal and the write
+      # goes to the chart's single shared imageTag. Go images mirror
+      # backend/Makefile image-build (backend/Dockerfile PKG args).
+      - name: migrate
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            registry.rjx.dedyn.io/scheduler/migrate:latest
+            registry.rjx.dedyn.io/scheduler/migrate:main-${{ github.sha }}
+          build-args: |
+            PKG=./shared/migrate
+      - name: catalog
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            registry.rjx.dedyn.io/scheduler/catalog:latest
+            registry.rjx.dedyn.io/scheduler/catalog:main-${{ github.sha }}
+          build-args: |
+            PKG=./services/catalog/cmd
+      - name: technician
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            registry.rjx.dedyn.io/scheduler/technician:latest
+            registry.rjx.dedyn.io/scheduler/technician:main-${{ github.sha }}
+          build-args: |
+            PKG=./services/technician/cmd
+      - name: bay
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            registry.rjx.dedyn.io/scheduler/bay:latest
+            registry.rjx.dedyn.io/scheduler/bay:main-${{ github.sha }}
+          build-args: |
+            PKG=./services/bay/cmd
+      - name: booking
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            registry.rjx.dedyn.io/scheduler/booking:latest
+            registry.rjx.dedyn.io/scheduler/booking:main-${{ github.sha }}
+          build-args: |
+            PKG=./services/booking/cmd
+      - name: gateway
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            registry.rjx.dedyn.io/scheduler/gateway:latest
+            registry.rjx.dedyn.io/scheduler/gateway:main-${{ github.sha }}
+          build-args: |
+            PKG=./services/gateway
+      - name: harness
+        uses: docker/build-push-action@v6
+        with:
+          context: harness
+          file: harness/Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            registry.rjx.dedyn.io/scheduler/harness:latest
+            registry.rjx.dedyn.io/scheduler/harness:main-${{ github.sha }}

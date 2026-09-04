@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # Mocked units only — no database. -short skips the real-Postgres
+  # occupancy tests (those run in the `occupancy` job below).
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      - run: go test -short ./...
+        working-directory: backend
+
+  # The GiST occupancy gate in CI: real postgres:16, all four databases,
+  # migrations applied via `go run ./shared/migrate` with defaults
+  # (PGHOST localhost, PGUSER/PGPASSWORD scheduler), then the FULL suite
+  # without -short. Occupancy DSNs are hardcoded to localhost:5432.
+  occupancy:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: scheduler
+          POSTGRES_PASSWORD: scheduler
+          POSTGRES_DB: catalog
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scheduler -d catalog"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+      # ubuntu-latest ships no Postgres client; the DB-create step below
+      # needs psql.
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      # The other three DBs: same script the postgres entrypoint runs on a
+      # fresh data dir (compose + the chart mount it the same way).
+      - name: Create technician/bay/booking databases
+        run: psql "postgres://scheduler:scheduler@localhost:5432/catalog?sslmode=disable" -f scripts/docker/init-databases.sql
+        working-directory: backend
+      - name: Apply migrations
+        run: go run ./shared/migrate
+        working-directory: backend
+      - name: Full suite (no -short)
+        run: go test ./...
+        working-directory: backend
+
+  # Chart checks only — no services, no cluster. E2E/compose stays out
+  # (needs compose + published ports).
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.18.4
+      - run: helm lint deploy/k8s
+      - run: helm template scheduler deploy/k8s --namespace scheduler > /dev/null
+      - run: helm template scheduler deploy/k8s --namespace scheduler --set 'imagePullSecrets[0].name=x' > /dev/null

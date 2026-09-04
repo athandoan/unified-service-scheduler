@@ -6,6 +6,9 @@ metadata:
   name: {{ .Release.Name }}-app
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "harness") | nindent 4 }}
+  annotations:
+    # ArgoCD: routes roll with the apps in wave 2.
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   parentRefs:
     - name: {{ .Values.httpRoute.gateway.name }}
@@ -28,6 +31,9 @@ metadata:
   name: {{ .Release.Name }}-app-http-redirect
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "harness") | nindent 4 }}
+  annotations:
+    # ArgoCD: routes roll with the apps in wave 2.
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   parentRefs:
     - name: {{ .Values.httpRoute.gateway.name }}

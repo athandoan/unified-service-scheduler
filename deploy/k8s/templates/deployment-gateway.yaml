@@ -4,6 +4,9 @@ metadata:
   name: {{ .Release.Name }}-gateway
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "gateway") | nindent 4 }}
+  annotations:
+    # ArgoCD: apps roll after the migrate Job (1).
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   replicas: 1
   selector:
@@ -42,6 +45,9 @@ metadata:
   name: gateway
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "gateway") | nindent 4 }}
+  annotations:
+    # ArgoCD: stays with the gateway Deployment in wave 2.
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   type: ClusterIP
   selector:
