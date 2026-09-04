@@ -2,9 +2,9 @@
 
 Scenario A (Ownership). A dealership service appointment is confirmed only when a **service bay** and a **qualified technician** are both free for the **entire** service interval.
 
-**User lock (explicit):** occupancy is **two allocators**. Technician owns technician intervals; Bay owns bay intervals. Booking orchestrates and stores the appointment. This is a saga. Silent overlap on **one** resource is still the failure that matters; a crash between reserve and compensate can still pin a resource for the hold TTL when there is no Booking row for the sweeper to work from — not every crash is recovered in-request.
+**User lock (explicit):** occupancy is **two allocators**. Technician owns technician intervals; Bay owns bay intervals. Booking orchestrates and stores the appointment. This is a saga. Silent overlap on **one** resource is still the failure that matters. A crash between reserve and compensate can still pin a resource for the hold TTL when there is no Booking row for the sweeper to work from — not every crash is recovered in-request.
 
-Catalog and the client stay stubs (OpenAPI + curl). Implementation is the write path: **Technician + Bay + Booking**. Scale is still **not** the hard part — O(10²) write QPS does not require this split; the split is a product/org choice.
+The client stays a stub (OpenAPI + harness). Catalog is implemented (Go service + Postgres, fail-closed reads). Implementation is the write path: **Technician + Bay + Booking**. Scale is still **not** the hard part — O(10²) write QPS does not require this split; the split is a product/org choice.
 
 ---
 
@@ -22,8 +22,8 @@ Catalog and the client stay stubs (OpenAPI + curl). Implementation is the write 
 
 ```mermaid
 flowchart LR
-  Stub["Client stub<br/>OpenAPI + curl"] --> GW["Gateway<br/>REST edge · pass-through"]
-  GW --> Cat["Catalog<br/>stub"]
+  Stub["Client stub<br/>OpenAPI + harness"] --> GW["Gateway<br/>REST edge · pass-through"]
+  GW --> Cat["Catalog<br/>Go service"]
   GW --> Book["Booking API<br/>write path · orchestrator"]
   Cat --> CatDB[("Catalog Postgres")]
   Book --> BookDB[("Booking Postgres<br/>appointments")]
@@ -34,7 +34,7 @@ flowchart LR
   Book -.->|"gRPC Reserve / Confirm / Release"| Bay
 ```
 
-Clients hit the **Gateway**, which routes HTTP to **Catalog / Booking** only; **Technician** and **Bay** are not public — only Booking calls them, over unary gRPC (Reserve / Confirm / Release), and only on the write path. There are **no** Gateway edges to the allocators.
+Clients hit the **Gateway**, which routes HTTP to **Catalog / Booking** only; **Technician** and **Bay** are not public — only Booking calls them, over unary gRPC (Reserve / Confirm / Release), and only on the write path.
 
 ### Component roles
 
@@ -59,7 +59,7 @@ Catalog **non-claim** cache may stay; the write path does not use it.
 
 ## Capacity (labeled assumptions, not Keyloop-published traffic)
 
-Assumed: 20 000 dealers × 50 **confirmed bookings** / dealer / day = **1 000 000 writes/day**; a confirm is Catalog GETs + two reserve writes + one appointment write. Counts below are confirmed bookings. **20 000** is order-of-magnitude for a Keyloop-**global** footprint, not the US dealer count; **50 / dealer / day** is bay-capped high online-mix **stress**, not today's phone-majority mix.
+Assumed: 20 000 dealers × 50 **confirmed bookings** / dealer / day = **1 000 000 writes/day**; a confirm is Catalog GETs + two reserve writes + one appointment write. Counts below are confirmed bookings. **20 000** is order-of-magnitude for a Keyloop-**global** footprint, not the US dealer count. **50 / dealer / day** is bay-capped high online-mix **stress**, not today's phone-majority mix.
 
 | Window | Write QPS |
 |---|---|
@@ -67,11 +67,11 @@ Assumed: 20 000 dealers × 50 **confirmed bookings** / dealer / day = **1 000 00
 | 8h shop day | 1e6 / 28800 ≈ **35** |
 | Peak (×3–5 on the shop-day mean) | **O(10²)** |
 
-Not a high-QPS design. The bottleneck is **local contention** at one dealer, one interval. Two allocators add **coordination** (latency, compensation, pinned holds), not write throughput. Hold TTL stays **120s**.
+Not a high-QPS design. The bottleneck is **local contention** at one dealer, one interval. Two allocators add **coordination** (latency, compensation, pinned holds), not write throughput. Hold TTL stays **120s**. Timing constants, all fixed with no env override: sweeper tick 10s, hold TTL 120s in SQL, Catalog client timeout 3s, allocator reserve retry ×3. Worst-case pin on the Booking-row path ≈ TTL + one sweeper tick.
 
 ## Data model
 
-Four databases. No distributed foreign keys. No events to sync ids. Catalog UUIDs on other DBs are **opaque** (attributes, not edges).
+Four logical databases on one Postgres 16 (compose + chart create them via `init-databases.sql`; each service keeps its own DSN). No distributed foreign keys. No events to sync ids. Catalog UUIDs on other DBs are **opaque** (attributes, not edges).
 
 **Catalog Postgres** — identity only. `ServiceType.duration_minutes` is display/typical, not the occupancy claim. Missing opening-hours weekday = closed.
 
@@ -233,7 +233,7 @@ Bounds are half-open `'[)`. `RELEASED` / Booking `CANCELLED` drop the row out of
 
 Allocator **occupations are gRPC** (Booking → Technician / Bay: Reserve / Confirm / Release), not public HTTP. Clients talk to Booking (and Catalog reads). They do **not** pick a named tech or bay. No authentication. Get/cancel are **IDOR**-able.
 
-Internal gRPC sketch (design only — no proto files in this repo):
+Internal gRPC sketch — implemented in `backend/shared/proto/` (buf generates `backend/shared/gen/`):
 
 - **Technician.**
   `Reserve(dealership_id, service_type_id, start, latest_end, request_id)` → `occupation_id, technician_id, end` — `end = start + skill.duration_minutes`; `latest_end` is the shop-close **ceiling**, not occupancy end.
@@ -257,7 +257,7 @@ Duration is never taken from the client: Booking stores `end_at` from the **Tech
 | `POST /appointments` (no `holdId`) | 1–6 then 7 | `CONFIRMED` or `409` |
 | `POST /appointments` (`holdId`) | 3 then 7 | `CONFIRMED` or `409`; no re-reserve |
 
-Reserve saga — steps 1, 4, 5, 6 below. Shared by `/holds` and confirm-without-hold. Promote skips this diagram. gRPC Confirm is step 7 — not pictured.
+Reserve saga — steps 1–6 below. Shared by `/holds` and confirm-without-hold (holds skip step 3). Promote skips this diagram. gRPC Confirm is step 7 — not pictured.
 
 ```mermaid
 sequenceDiagram
@@ -267,6 +267,9 @@ sequenceDiagram
     participant Bay as Bay
 
     Book->>Cat: snapshot HTTP (ownership, hours, TZ, type exists)
+    Note over Book: step 2 - validate start within snapshotted hours
+    Note over Book: POST /appointments only (step 3) - Idempotency-Key lookup, replay or 409 before any Reserve
+
     Book->>Tech: Reserve(dealership_id, service_type_id, start, latest_end, request_id)
     Tech-->>Book: occupation_id, technician_id, end
     Book->>Bay: Reserve(dealership_id, start, end, request_id)
@@ -281,7 +284,7 @@ sequenceDiagram
         Book->>Tech: Release
     end
 
-    Note over Book,Bay: Confirm-without-hold = this diagram, then step 7 (Confirm). /holds returns at the insert; Tech Reserve fail → 409 before Bay, nothing to release.
+    Note over Book,Bay: Confirm-without-hold = this diagram, then step 7 (Confirm). /holds returns at the insert. Replay/mismatch returns before any Reserve. Tech Reserve fail → 409 before Bay, nothing to release.
 ```
 
 ### Reserve (steps 1–6)
@@ -309,15 +312,15 @@ Step 7 is a **phase**. Confirm-without-hold runs 1–6 then 7 in the **same** `P
 
 ### Cancel
 
-Booking sets `CANCELLED`, then calls gRPC `Release` on both occupations (bay then tech). Release is idempotent: cancel of an already-`CANCELLED` appointment is a re-Release and succeeds. The slot becomes bookable when both Releases commit. Cancel then book can still lose the slot. The Booking sweeper retries bounded `CANCELLED` work (see Recovery).
+Booking sets `CANCELLED`, then calls gRPC `Release` on both occupations (bay then tech). Release is idempotent: cancel of an already-`CANCELLED` appointment is a re-Release and succeeds. `DELETE` on a `HELD` hold takes the same path: row to `CANCELLED`, then Release both. The slot becomes bookable when both Releases commit. Cancel then book can still lose the slot. The Booking sweeper retries bounded `CANCELLED` work (see Recovery).
 
 ### Recovery
 
 Compensation happens in three layers, in order of how much row evidence exists:
 
 - **In-request (live handler).** Reverse order as the diagram alts show (Bay fail → Release tech; insert fail → Release bay then tech); **any Confirm failure → Release both stored occupation ids** then `409`.
-- **Booking sweeper (persisted rows).** Work item is the Appointment row plus its stored occupation ids — **no** outbox, no saga log, no allocator reads, no liveness RPC. Release bay then tech, using idempotent Release. Expired `HELD`: CAS first — `UPDATE … SET status=CANCELLED WHERE status=HELD AND hold_expires_at <= now()` — **then** Release both (Release-then-UPDATE could un-confirm a winning promote). GET returns the **stored** status: an expired `HELD` is still `HELD` until this CAS, then `CANCELLED`. Bounded `CANCELLED` retry — recent rows, or until both Releases succeed this pass, not all `CANCELLED` forever. Promote of a `holdId` the sweeper already cancelled → `409`.
-- **Allocator reaper (no Booking row).** Each allocator runs a **periodic reaper** — always-on `DELETE` of expired `HELD` rows (`hold_expires_at <= now()`), not gated on contention. Separately, on Reserve `0` rows or GiST `23P01`, it deletes its own expired `HELD` rows — **three attempts total**, then `409`. Booking does not run that SQL. An expired `HELD` occupation still occupies GiST until that allocator `DELETE`s it. `CONFIRMED` occupations are never TTL-deleted.
+- **Booking sweeper (persisted rows).** Work item is the Appointment row plus its stored occupation ids — **no** outbox, no saga log, no allocator reads, no liveness RPC. Release bay then tech, using idempotent Release. Expired `HELD`: CAS first — `UPDATE … SET status=CANCELLED WHERE status=HELD AND hold_expires_at <= now()` — **then** Release both (Release-then-UPDATE could un-confirm a winning promote). GET returns the **stored** status: an expired `HELD` is still `HELD` until this CAS, then `CANCELLED`. The sweeper retries `CANCELLED` rows that still hold occupation ids until both Releases succeed, then clears the ids and stops — rows with no ids left are never swept. Promote of a `holdId` the sweeper already cancelled → `409`. Half-promote the other way (both Confirms land, then the row flip loses the CAS to the sweeper): the loser re-reads the row and Releases its own occupation ids in-request; a crash in that window is what the bounded `CANCELLED` retry is for.
+- **Allocator reaper (no Booking row).** Each allocator runs a **periodic reaper** — always-on `DELETE` of expired `HELD` rows (`hold_expires_at <= now()`), not gated on contention. Separately, on Reserve `0` rows or GiST `23P01`, it deletes its own expired `HELD` rows — **three attempts total**, then `409`. Booking does not run that SQL. An expired `HELD` occupation still occupies GiST until that allocator `DELETE`s it. `CONFIRMED` occupations are never TTL-deleted. All TTL comparisons use the database `now()` on the one shared Postgres instance — there is no clock-skew story.
 
 **Residual (accepted):** a crash **after a successful Reserve and before the Booking insert** leaves no appointment row for the sweeper — tech and bay stay pinned until the 120s TTL or the allocator reaper.
 
@@ -350,7 +353,7 @@ gRPC does not close the race; GiST does. Check-then-act across RPC still cannot 
 | Choice | Justification |
 |---|---|
 | PostgreSQL 16 + `btree_gist` on Technician and on Bay | Each allocator's range exclusion is still a DB primitive on **one** primary per resource. |
-| Separate Catalog Postgres | Read-heavy identity; write path fail-closed. |
+| Separate Catalog Postgres (logical DB) | Read-heavy identity; write path fail-closed. |
 | Booking Postgres without occupancy GiST | Appointment is the business record, not the lock. |
 | Go + pgx on the three write services | Claims are SQL; Booking is HTTP orchestration over **gRPC** to the allocators. |
 | `timestamptz` + IANA TZ | Stored instants are unambiguous. |
@@ -363,7 +366,7 @@ Not chosen: Redis occupancy; Kafka/outbox; `SELECT FOR UPDATE` on resource rows;
 
 ## Observability
 
-**Logs.** JSON. `request_id` on every hop — propagated on gRPC **metadata** for the Booking → allocator Reserve / Confirm / Release calls. Booking logs saga step + `409` code + dealership + interval. Allocators log GiST `23P01`. Clients never see stack traces.
+**Logs.** JSON, with `request_id` on every hop (gRPC **metadata** on Booking → allocator calls). Booking logs saga step + `409` code + dealership + interval; allocators log GiST `23P01`. Clients never see stack traces.
 
 **Metrics**
 
@@ -377,7 +380,7 @@ Not chosen: Redis occupancy; Kafka/outbox; `SELECT FOR UPDATE` on resource rows;
 
 **Tracing.** Optional OpenTelemetry across the saga hops. Off unless an exporter is set.
 
-**Health.** Liveness without dependencies. Gateway is liveness only — no DB. Each write service readiness pings its own primary.
+**Health.** Liveness probes take no dependencies; Gateway is liveness-only with no DB. Each write service's readiness pings its own primary.
 
 Part 1 asked for a dedicated GenAI-in-design-phase section in this document; that review is in `docs/AI_LOG.md` ## System design.
 
