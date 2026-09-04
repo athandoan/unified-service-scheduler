@@ -46,6 +46,45 @@
   const mockAppointments = new Map();
   const mockIdempotency = new Map();
 
+  // Idempotency-Key trap guard (UI send path only, so mock and live share
+  // it): one key field serves two confirm shapes ({holdId} promote vs
+  // catalog fields). A key already recorded for one shape 409s on the other
+  // ("same key, different body"), so rotate before sending and say so in the
+  // Request panel. Same-shape resends (replay demos) and same-shape changed
+  // fields (genuine mismatch demos) are untouched.
+  const usedConfirmKeys = new Map();
+
+  function confirmShape(body) {
+    return body && body.holdId ? "hold" : "confirm";
+  }
+
+  function shapeLabel(shape) {
+    return shape === "hold" ? "a hold promote ({holdId})" : "a confirm-without-hold";
+  }
+
+  // Returns {key, note}: the key to send, plus a Request-panel note when the
+  // field was rotated. Empty keys pass through (the server 400s them).
+  function freshKeyFor(shape) {
+    const field = el("idempotencyKey");
+    const key = field.value.trim();
+    if (key && usedConfirmKeys.get(key) && usedConfirmKeys.get(key) !== shape) {
+      const prev = shapeLabel(usedConfirmKeys.get(key));
+      regenKey();
+      return {
+        key: field.value.trim(),
+        note:
+          "Idempotency-Key auto-rotated: the previous key is already bound to " +
+          prev +
+          " in this session.",
+      };
+    }
+    return { key, note: null };
+  }
+
+  function rememberConfirmKey(key, shape, status) {
+    if (key && status >= 200 && status < 300) usedConfirmKeys.set(key, shape);
+  }
+
   const el = (id) => document.getElementById(id);
 
   function uuid() {
@@ -136,8 +175,10 @@
       : "Catalog durationMinutes: (none)";
   }
 
-  function showRequest(method, url, headers, body) {
-    el("requestOut").textContent = JSON.stringify({ method, url, headers: headers || {}, body: body || null }, null, 2);
+  function showRequest(method, url, headers, body, note) {
+    const shown = { method, url, headers: headers || {}, body: body === undefined ? null : body };
+    if (note != null) shown.note = note;
+    el("requestOut").textContent = JSON.stringify(shown, null, 2);
   }
 
   function showResponse(status, body) {
@@ -275,11 +316,11 @@
     return jsonResponse(404, { error: "not_found", message: pathname });
   }
 
-  async function api(method, path, { body, headers } = {}) {
+  async function api(method, path, { body, headers, note } = {}) {
     const hdrs = Object.assign({}, headers || {});
     if (body !== undefined) hdrs["Content-Type"] = "application/json";
     const url = mode() === "live" ? el("baseUrl").value.replace(/\/$/, "") + path : path;
-    showRequest(method, url, hdrs, body === undefined ? null : body);
+    showRequest(method, url, hdrs, body === undefined ? null : body, note);
 
     if (mode() === "mock") {
       const result = mockApi(method, path, { body, headers: hdrs });
@@ -332,19 +373,28 @@
 
   async function postConfirm() {
     const body = catalogBody();
+    const shape = confirmShape(body);
+    const send = freshKeyFor(shape);
     const result = await api("POST", "/appointments", {
       body,
-      headers: { "Idempotency-Key": el("idempotencyKey").value.trim() },
+      headers: { "Idempotency-Key": send.key },
+      note: send.note,
     });
+    rememberConfirmKey(send.key, shape, result.status);
     rememberAppointment(result);
   }
 
   async function postPromote() {
     const holdId = el("appointmentId").value.trim();
+    const body = { holdId };
+    const shape = confirmShape(body);
+    const send = freshKeyFor(shape);
     const result = await api("POST", "/appointments", {
-      body: { holdId },
-      headers: { "Idempotency-Key": el("idempotencyKey").value.trim() },
+      body,
+      headers: { "Idempotency-Key": send.key },
+      note: send.note,
     });
+    rememberConfirmKey(send.key, shape, result.status);
     rememberAppointment(result);
   }
 
