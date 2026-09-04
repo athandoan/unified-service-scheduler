@@ -79,6 +79,21 @@ Collaboration record for System design / Implement / Test / Deploy — not a sou
   - **Reviewed:** three journeys — `/holds` (1–2, 4–6, no Confirm), confirm-without-hold (1–6 then 7 same request), promote (`holdId`, 3 then 7, second request).
   - **Changed:** 3-row entry map; diagram caption + insert `HELD`; split Reserve 1–6 / Confirm 7; reaper moved into Recovery; no extra diagram.
 
+- Design doc catch-up
+  - **AI:** Catalog still labeled stub; gRPC sketch said no proto files; four DBs read as four instances.
+  - **Reviewed:** Catalog is a Go service + Postgres; protos live in-repo; one Postgres 16, four logical DBs.
+  - **Changed:** client stub only (OpenAPI + harness); Catalog = Go service on the diagram; gRPC sketch → `backend/shared/proto/` + buf gen; compose/chart `init-databases.sql`; Technologies label “logical DB”.
+
+- Recovery / data-flow review
+  - **AI:** crash pin and CAS-then-Release were in the doc; promote-vs-sweeper CAS loss, timing constants, DELETE-on-HELD, and clock basis were not.
+  - **Reviewed:** name the half-promote (Confirms land, row flip loses to sweeper); list fixed timings; HELD cancel is the same path; no clock-skew story.
+  - **Changed:** Recovery names that interleaving + in-request Release of the loser's ids; sweeper tick 10s, TTL 120s SQL, Catalog client 3s, reserve retry ×3, pin ≈ TTL + one tick (Booking-row path); Cancel covers `DELETE` of `HELD`; TTL via DB `now()` on the one Postgres; sequence notes for steps 2–3.
+
+- Mermaid sequence fix
+  - **AI:** two `opt`/Note rewrites of the reserve diagram, both parse errors.
+  - **Reviewed:** repro locally on mermaid 11.17.2; `;` terminates Note statements; original never parsed either.
+  - **Changed:** punctuation-only fix in two Note lines; all 6 blocks parse green.
+
 ## Implement
 
 - OpenAPI/curl/harness
@@ -95,6 +110,11 @@ Collaboration record for System design / Implement / Test / Deploy — not a sou
   - **AI:** Booking saga (Catalog snapshot fail-closed → Reserve tech → Reserve bay → INSERT HELD → Confirm tech then bay), Gateway as a thin reverse-proxy on :8080, Booking sweeper + allocator reapers.
   - **Reviewed:** user confirmed write-path 1–7, confirm-only idempotency, POST /holds returns HELD and must not Confirm, compensate bay-then-tech.
   - **Changed:** Booking owns only the appointment row (no occupancy SQL); idempotency_key/fingerprint land only on the CONFIRMED UPDATE; any Confirm failure releases both and 409s; never a replacement pair.
+
+- Harness Idempotency-Key trap
+  - **AI:** one key field for `{holdId}` promote and confirm-without-hold; hold→promote then confirm 409d `same key, different body`.
+  - **Reviewed:** backend fingerprinting is correct; trap is harness UX.
+  - **Changed:** UI send path rotates the key when a 2xx confirm already bound the other shape; Request panel notes the rotation; same-shape replay and same-shape mismatch unchanged.
 
 ## Test
 
@@ -134,3 +154,8 @@ Collaboration record for System design / Implement / Test / Deploy — not a sou
   - **AI:** one domain for the Gateway; no product frontend in repo.
   - **Reviewed:** user wants one domain each: FE `scheduler.rjx.dedyn.io` serves the harness stub, BE `api.rjx.dedyn.io` serves Gateway; harness stays a stub.
   - **Changed:** 7th `harness` nginx image; HTTPRoutes api → `gateway:8080`, scheduler → `harness:80` (+ redirects); live smoke 200 on both; harness live-mode Base URL defaults to the BE domain when served remotely.
+
+- GitOps pipeline docs
+  - **AI:** live deploy loop proven but undocumented (chart + commands only).
+  - **Reviewed:** push → CI/publish → updater → ArgoCD → roll; k8s-apply is bootstrap; never uninstall.
+  - **Changed:** README Kubernetes gained the GitOps loop subsection + flowchart; secrets/prereqs stated.

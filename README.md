@@ -7,7 +7,7 @@ The architectural plan is [`docs/SYSTEM_DESIGN.md`](./docs/SYSTEM_DESIGN.md). Im
 ## Plan
 
 - [x] **System design** — done: [`docs/SYSTEM_DESIGN.md`](./docs/SYSTEM_DESIGN.md).
-- [x] **Implement** — write path: **Technician** + **Bay** + **Booking** (Go + pgx). Each allocator has PostgreSQL GiST on its resource. Booking orchestrates and compensates. Catalog and the client stay **stubs** (OpenAPI + harness). Gateway is a REST edge, **not** the saga coordinator.
+- [x] **Implement** — write path: **Technician** + **Bay** + **Booking** (Go + pgx). Each allocator has PostgreSQL GiST on its resource. Booking orchestrates and compensates. Catalog is implemented (Go service + Postgres); the client stays a **stub** (OpenAPI + harness). Gateway is a REST edge, **not** the saga coordinator.
 - [x] **Test** — concurrent overlap on the **same tech** and the **same bay**; plus tech reserved / bay fails → tech released. Happy-path coverage alone is not enough.
 - [x] **Deploy** — local first (compose above). Kubernetes is a Helm chart at [`deploy/k8s/`](./deploy/k8s/), not the occupancy problem. Extra pods do not add occupancy scale.
 
@@ -80,6 +80,21 @@ helm upgrade --install scheduler ../deploy/k8s -n scheduler --create-namespace \
 ```
 
 `make k8s-apply` waits for postgres Ready, then for the migrate **Job** to complete (`helm --wait` is not that gate). `make k8s-delete` uninstalls the release.
+
+### GitOps loop (live path)
+
+```mermaid
+flowchart LR
+    push[git push main] --> CI[ci.yml - unit, occupancy, chart]
+    push --> PUB[publish.yml - buildx arm64, 7 images]
+    PUB --> REG[(registry.rjx.dedyn.io/scheduler - latest plus main-sha)]
+    REG -->|poll ~2m| UPD[Image Updater writes Helm imageTag]
+    UPD --> ARGO[ArgoCD sync - postgres, migrate Job, apps]
+    ARGO --> BE[api.rjx.dedyn.io]
+    ARGO --> FE[scheduler.rjx.dedyn.io]
+```
+
+Push to `main` runs CI (unit, occupancy, chart) and publish (seven arm64 images tagged `:latest` plus `:main-<sha>`). The Image Updater polls the registry (~2m) and writes the new tag into the live Application's shared `imageTag`. ArgoCD syncs postgres, then a fresh migrate Job (unique per tag, so migrations re-run), then the apps. `make k8s-apply` is bootstrap and manual work only — the live loop never touches the cluster from CI. Never `helm uninstall` the ArgoCD-managed release (the PVC goes with it). Registry credentials live in GitHub secrets and the in-cluster pull secret, never in git.
 
 ## Client stub
 
