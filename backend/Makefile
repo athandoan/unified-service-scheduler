@@ -87,7 +87,7 @@ k8s-apply:
 	helm upgrade --install $(HELM_RELEASE) $(CHART) -n $(HELM_NAMESPACE) --create-namespace \
 	  --set imagePrefix=$(IMAGE_PREFIX) --set imageTag=$(IMAGE_TAG)
 	kubectl rollout status deployment/$(HELM_RELEASE)-postgres -n $(HELM_NAMESPACE) --timeout=120s
-	kubectl wait --for=condition=complete job/$(HELM_RELEASE)-migrate -n $(HELM_NAMESPACE) --timeout=180s
+	kubectl wait --for=condition=complete -l app.kubernetes.io/component=migrate -n $(HELM_NAMESPACE) --timeout=180s
 
 k8s-delete:
 	helm uninstall $(HELM_RELEASE) -n $(HELM_NAMESPACE)

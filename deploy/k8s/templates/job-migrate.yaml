@@ -9,14 +9,17 @@ the app.kubernetes.io/component=migrate label) before each upgrade.
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ .Release.Name }}-migrate
+  # Unique per imageTag. Jobs are immutable, and ArgoCD Replace is a PUT (not
+  # delete+create), so same-name updates fail once the controller stamps its
+  # labels. A new tag = a new Job object (pure CREATE); ArgoCD prune removes
+  # the old one. Same tag re-synced = identical spec = no-op success.
+  name: {{ .Release.Name }}-migrate-{{ .Values.imageTag | sha256sum | trunc 10 }}
   labels:
     {{- include "scheduler.labels" (dict "ctx" . "component" "migrate") | nindent 4 }}
   annotations:
+    scheduler.migrate/image-tag: {{ .Values.imageTag | quote }}
     # ArgoCD: migrate runs after postgres (0), before apps (2).
     argocd.argoproj.io/sync-wave: "1"
-    # Jobs are immutable; Replace mirrors the manual delete-first flow.
-    argocd.argoproj.io/sync-options: Replace=true
 spec:
   # Explicit selector: ArgoCD Replace re-applies this Job, and the API
   # rejects a replace without one (create-time defaulting does not apply).
