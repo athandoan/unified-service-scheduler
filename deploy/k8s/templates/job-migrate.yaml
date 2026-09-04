@@ -18,6 +18,14 @@ metadata:
     # Jobs are immutable; Replace mirrors the manual delete-first flow.
     argocd.argoproj.io/sync-options: Replace=true
 spec:
+  # Explicit selector: ArgoCD Replace re-applies this Job, and the API
+  # rejects a replace without one (create-time defaulting does not apply).
+  # Stable labels only — never controller-owned ones (controller-uid/job-name).
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scheduler
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: migrate
   template:
     metadata:
       labels:
