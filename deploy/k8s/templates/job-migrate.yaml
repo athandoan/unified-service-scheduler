@@ -21,14 +21,9 @@ metadata:
     # ArgoCD: migrate runs after postgres (0), before apps (2).
     argocd.argoproj.io/sync-wave: "1"
 spec:
-  # Explicit selector: ArgoCD Replace re-applies this Job, and the API
-  # rejects a replace without one (create-time defaulting does not apply).
-  # Stable labels only — never controller-owned ones (controller-uid/job-name).
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: scheduler
-      app.kubernetes.io/instance: {{ .Release.Name }}
-      app.kubernetes.io/component: migrate
+  # No spec.selector: this apiserver rejects user-supplied Job selectors
+  # ("not auto-generated") and auto-generates from the template labels.
+  # Uniqueness comes from the name alone; prune removes retired Jobs.
   template:
     metadata:
       labels:
