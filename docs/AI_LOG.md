@@ -155,6 +155,11 @@ Collaboration record for System design / Implement / Test / Deploy — not a sou
   - **Reviewed:** user wants one domain each: FE `scheduler.rjx.dedyn.io` serves the harness stub, BE `api.rjx.dedyn.io` serves Gateway; harness stays a stub.
   - **Changed:** 7th `harness` nginx image; HTTPRoutes api → `gateway:8080`, scheduler → `harness:80` (+ redirects); live smoke 200 on both; harness live-mode Base URL defaults to the BE domain when served remotely.
 
+- Gated publish on verify
+  - **AI:** publish fired on every main push, even red CI; workflow named `ci`.
+  - **Reviewed:** gate on green verify via workflow_run; dispatch stays as break-glass; rename to `verify`.
+  - **Changed:** `ci.yml` → `verify.yml`; publish waits for green verify and tags the verified sha; README loop redrawn serial.
+
 - GitOps pipeline docs
   - **AI:** live deploy loop proven but undocumented (chart + commands only).
   - **Reviewed:** push → CI/publish → updater → ArgoCD → roll; k8s-apply is bootstrap; never uninstall.

@@ -1,7 +1,9 @@
 name: publish
 
 on:
-  push:
+  workflow_run:
+    workflows: [verify]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -12,13 +14,18 @@ on:
 # settings) — referenced here, never in git.
 jobs:
   images:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    env:
+      TAG_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     # qemu arm64 Go builds are slow (~5 min each); steps run sequentially.
     timeout-minutes: 60
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG_SHA }}
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Login to registry
@@ -40,7 +47,7 @@ jobs:
           push: true
           tags: |
             registry.rjx.dedyn.io/scheduler/migrate:latest
-            registry.rjx.dedyn.io/scheduler/migrate:main-${{ github.sha }}
+            registry.rjx.dedyn.io/scheduler/migrate:main-${{ env.TAG_SHA }}
           build-args: |
             PKG=./shared/migrate
       - name: catalog
@@ -52,7 +59,7 @@ jobs:
           push: true
           tags: |
             registry.rjx.dedyn.io/scheduler/catalog:latest
-            registry.rjx.dedyn.io/scheduler/catalog:main-${{ github.sha }}
+            registry.rjx.dedyn.io/scheduler/catalog:main-${{ env.TAG_SHA }}
           build-args: |
             PKG=./services/catalog/cmd
       - name: technician
@@ -64,7 +71,7 @@ jobs:
           push: true
           tags: |
             registry.rjx.dedyn.io/scheduler/technician:latest
-            registry.rjx.dedyn.io/scheduler/technician:main-${{ github.sha }}
+            registry.rjx.dedyn.io/scheduler/technician:main-${{ env.TAG_SHA }}
           build-args: |
             PKG=./services/technician/cmd
       - name: bay
@@ -76,7 +83,7 @@ jobs:
           push: true
           tags: |
             registry.rjx.dedyn.io/scheduler/bay:latest
-            registry.rjx.dedyn.io/scheduler/bay:main-${{ github.sha }}
+            registry.rjx.dedyn.io/scheduler/bay:main-${{ env.TAG_SHA }}
           build-args: |
             PKG=./services/bay/cmd
       - name: booking
@@ -88,7 +95,7 @@ jobs:
           push: true
           tags: |
             registry.rjx.dedyn.io/scheduler/booking:latest
-            registry.rjx.dedyn.io/scheduler/booking:main-${{ github.sha }}
+            registry.rjx.dedyn.io/scheduler/booking:main-${{ env.TAG_SHA }}
           build-args: |
             PKG=./services/booking/cmd
       - name: gateway
@@ -100,7 +107,7 @@ jobs:
           push: true
           tags: |
             registry.rjx.dedyn.io/scheduler/gateway:latest
-            registry.rjx.dedyn.io/scheduler/gateway:main-${{ github.sha }}
+            registry.rjx.dedyn.io/scheduler/gateway:main-${{ env.TAG_SHA }}
           build-args: |
             PKG=./services/gateway
       - name: harness
@@ -112,4 +119,4 @@ jobs:
           push: true
           tags: |
             registry.rjx.dedyn.io/scheduler/harness:latest
-            registry.rjx.dedyn.io/scheduler/harness:main-${{ github.sha }}
+            registry.rjx.dedyn.io/scheduler/harness:main-${{ env.TAG_SHA }}
